@@ -253,10 +253,17 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self._run_cmd(f"curl -LSs {setup_url} | bash -s builtin", check=False)
         if self.config.kernelsu_commit:
             ksu_dir = self.work_dir / "KernelSU"
-            if ksu_dir.exists():
-                self._chdir(ksu_dir)
-                self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
-                self._chdir(self.work_dir)
+            if not ksu_dir.exists():
+                raise RuntimeError("KernelSU 目录不存在，无法校验指定 commit")
+
+            self._chdir(ksu_dir)
+            self._run_cmd(f"git checkout {self.config.kernelsu_commit}")
+            actual = self._run_cmd("git rev-parse HEAD", capture_output=True).stdout.strip().lower()
+            expected = self.config.kernelsu_commit.lower()
+            if re.fullmatch(r"[0-9a-f]{7,40}", expected) and not actual.startswith(expected):
+                raise RuntimeError(f"KernelSU commit 校验失败: expected {expected}, actual {actual}")
+            logger.info(f"KernelSU commit 已固定: {actual}")
+            self._chdir(self.work_dir)
 
     def add_bbg(self):
         if not self.config.use_bbg:
@@ -563,22 +570,35 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         logger.info("=== 开始编译内核 ===")
         self._chdir(self.work_dir)
 
+        warning_flags = ""
+        if self.config.android_version == "android13" and self.config.kernel_version == "5.10":
+            warning_flags = (
+                "-Wno-error=unused-label -Wno-error=unused-variable -Wno-error=unused-function "
+                "-Wno-unused-label -Wno-unused-variable -Wno-unused-function"
+            )
+
         build_config = self.work_dir / "common/build.config.gki.aarch64"
         if build_config.exists():
             with open(build_config, "r") as f:
                 content = f.read()
             content = content.replace("BUILD_SYSTEM_DLKM=1", "BUILD_SYSTEM_DLKM=0")
             lines = [l for l in content.split('\n') if 'MODULES_ORDER=android/gki_aarch64_modules' not in l and 'KMI_SYMBOL_LIST_STRICT_MODE' not in l]
+            if warning_flags and not any("-Wno-error=unused-label" in l for l in lines):
+                lines.append(f'KCFLAGS="${{KCFLAGS:-}} {warning_flags}"')
             with open(build_config, "w") as f:
                 f.write('\n'.join(lines))
 
         try:
+            extra_kcflags = ""
+            if warning_flags:
+                extra_kcflags = f'KCFLAGS="{warning_flags}" '
+
             if (self.work_dir / "build/build.sh").exists():
                 logger.info("使用旧版构建方式...")
-                result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
+                result = self._run_cmd(f"{extra_kcflags}LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
             else:
                 logger.info("使用 Bazel 构建方式...")
-                result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
+                result = self._run_cmd(f"{extra_kcflags}tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
 
             if result.returncode == 0:
                 logger.info("=== 内核编译成功 ===")
