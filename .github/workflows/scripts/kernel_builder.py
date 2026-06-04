@@ -263,6 +263,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             if re.fullmatch(r"[0-9a-f]{7,40}", expected) and not actual.startswith(expected):
                 raise RuntimeError(f"KernelSU commit 校验失败: expected {expected}, actual {actual}")
             logger.info(f"KernelSU commit 已固定: {actual}")
+            self._pin_kernelsu_version_branch(actual)
             self._chdir(self.work_dir)
 
     def add_bbg(self):
@@ -287,6 +288,20 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                            content, flags=re.DOTALL)
             with open(kconfig_file, "w") as f:
                 f.write(content)
+
+    def _pin_kernelsu_version_branch(self, commit: str):
+        kbuild = self.work_dir / "KernelSU/kernel/Kbuild"
+        if not kbuild.exists():
+            raise FileNotFoundError(f"KernelSU Kbuild 不存在，无法固定版本计数: {kbuild}")
+
+        with open(kbuild, "r") as f:
+            content = f.read()
+
+        content = re.sub(r"^REPO_BRANCH\s*:=\s*main$", f"REPO_BRANCH := {commit}", content, flags=re.MULTILINE)
+
+        with open(kbuild, "w") as f:
+            f.write(content)
+        logger.info(f"KernelSU 版本计数已固定到 commit: {commit}")
 
     def apply_susfs_patches(self):
         logger.info("=== 应用 SUSFS 补丁 ===")
