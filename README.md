@@ -103,6 +103,13 @@ python build.py --list-matrix
 > `--ksu-commit` / workflow 里的「指定 KernelSU commit hash」请留空（自动使用 `builtin` 分支），
 > 或填写 `builtin` 分支上的提交。填 `main` 分支上的 tag/commit（例如 v4.2.0 的
 > `85eb4a95`）会因缺少 `KSU_SUSFS` Kconfig 而构建失败（脚本会提前报错提示）。
+>
+> SUSFS 侧同样需要固定版本：`builtin` 分支只匹配 SUSFS **v2.2.0**（commit
+> `3042e23226e178dc18363a442955a68fd44ede9c`）。更新的 SUSFS（v2.3.0 起）会引用
+> `ksu_handle_post_execveat_sucompat` 等 KernelSU 侧新符号，而本仓库不会打
+> `kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch`，会直接报链接错误
+> `undefined symbol`。已验证可用的组合：
+> `android14 / 6.1 / 145 / 2025-09` + `kernelsu_commit` 留空 + `susfs_commit=3042e23`。
 
 ---
 

@@ -56,10 +56,10 @@ on:
         type: string
         default: ''
       susfs_commit:
-        description: '指定 SUSFS commit hash'
+        description: '指定 SUSFS commit hash (默认 SUSFS v2.2.0，与 builtin 分支兼容)'
         required: false
         type: string
-        default: ''
+        default: '3042e23226e178dc18363a442955a68fd44ede9c'
       custom_version:
         description: '自定义版本名称 (可选)'
         required: false
