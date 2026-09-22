@@ -32,9 +32,11 @@ def get_susfs_version() -> str:
     return "v2.1.0"
 
 
-# 内核版本号 - 从 susfs 仓库自动获取
+# 注意：这是 susfs4ksu 分支 HEAD 的版本（release tag 也用它），仅供参考。
+# 实际编译进内核的 SUSFS 版本以 --susfs-commit 指定的提交为准，日志里
+# KernelSU Makefile 打印的 `-- SUSFS_VERSION:` 才是真正生效的版本。
 KERNEL_VERSION = get_susfs_version()
-print(f"SUSFS Version: {KERNEL_VERSION}")
+print(f"SUSFS 分支最新版本(仅供参考): {KERNEL_VERSION}")
 
 
 class AndroidVersion(Enum):
@@ -105,6 +107,7 @@ class BuildConfig:
     kernelsu_version: str = "Stable(标准)"
     kernelsu_commit: Optional[str] = None
     susfs_commit: Optional[str] = None
+    ksu_version_code: Optional[str] = None
     use_zram: bool = False
     use_kpm: bool = True
     use_bbg: bool = False
@@ -120,6 +123,7 @@ class BuildConfig:
         self._validate_kernel_version()
         self._validate_kernel_android_compat()
         self._validate_sub_level()
+        self._validate_ksu_version_code()
         self._set_build_id()
 
     def _validate_android_version(self):
@@ -141,6 +145,14 @@ class BuildConfig:
     def _validate_sub_level(self):
         if self.sub_level != "X" and not self.sub_level.isdigit():
             raise ValueError(f"无效的 sub_level: {self.sub_level}")
+
+    def _validate_ksu_version_code(self):
+        if self.ksu_version_code in (None, ""):
+            return
+        if not str(self.ksu_version_code).isdigit():
+            raise ValueError(f"无效的 ksu_version_code: {self.ksu_version_code}. 需要整数，例如 40900")
+        if int(self.ksu_version_code) < 40000:
+            raise ValueError(f"无效的 ksu_version_code: {self.ksu_version_code}. 需要 >= 40000")
 
     def _set_build_id(self):
         if self.build_id is None:
@@ -175,6 +187,7 @@ class BuildConfig:
             "os_patch_level": self.os_patch_level,
             "kernelsu_version": self.kernelsu_version,
             "kernelsu_commit": self.kernelsu_commit,
+            "ksu_version_code": self.ksu_version_code,
             "use_zram": self.use_zram,
             "use_kpm": self.use_kpm,
             "use_bbg": self.use_bbg,

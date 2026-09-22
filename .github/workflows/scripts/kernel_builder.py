@@ -257,6 +257,34 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._chdir(ksu_dir)
                 self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
                 self._chdir(self.work_dir)
+        self.pin_ksu_version()
+
+    def pin_ksu_version(self):
+        if not self.config.ksu_version_code:
+            return
+        target = int(self.config.ksu_version_code)
+        logger.info(f"=== 钉住内核侧 SukiSU 版本号: {target} ===")
+        makefile = self.work_dir / "KernelSU/kernel/Makefile"
+        if not makefile.exists():
+            raise RuntimeError(f"未找到 KernelSU Makefile: {makefile}，无法钉住版本号")
+        with open(makefile) as f:
+            content = f.read()
+        m_base = re.search(r'^VERSION_BASE\s*:=\s*(\d+)', content, re.MULTILINE)
+        m_offset = re.search(r'^VERSION_OFFSET\s*:=\s*(\d+)', content, re.MULTILINE)
+        if not m_base or not m_offset:
+            raise RuntimeError("无法从 KernelSU Makefile 解析 VERSION_BASE / VERSION_OFFSET")
+        # KSU_VERSION = VERSION_BASE + LOCAL_COUNT - VERSION_OFFSET
+        local_count = target - int(m_base.group(1)) + int(m_offset.group(1))
+        if local_count <= 0:
+            raise RuntimeError(f"版本号 {target} 换算出的 LOCAL_COUNT 非法: {local_count}")
+        # KernelSU 默认用上游 main 分支的实时提交数，会随时间漂移，这里直接写死。
+        content, replaced = re.subn(r'^LOCAL_COUNT\s*:=.*$',
+                                    f'LOCAL_COUNT     := {local_count}', content, flags=re.MULTILINE)
+        if replaced == 0:
+            raise RuntimeError("KernelSU Makefile 中未找到 LOCAL_COUNT，无法钉住版本号")
+        with open(makefile, "w") as f:
+            f.write(content)
+        logger.info(f"内核侧 SukiSU 版本号已固定为 {target} (LOCAL_COUNT={local_count})")
 
     def add_bbg(self):
         if not self.config.use_bbg:

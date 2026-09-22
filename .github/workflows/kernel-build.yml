@@ -60,6 +60,11 @@ on:
         required: false
         type: string
         default: '3042e23226e178dc18363a442955a68fd44ede9c'
+      ksu_version_code:
+        description: '钉住内核侧 SukiSU 版本号，需与所用管理器 APK 一致 (v4.2.0 APK = 40900；留空=按上游 main 提交数自动计算，会漂移)'
+        required: false
+        type: string
+        default: '40900'
       custom_version:
         description: '自定义版本名称 (可选)'
         required: false
@@ -168,6 +173,7 @@ jobs:
           [ "${{ github.event.inputs.set_defbbr }}" = "true" ] && ARGS="$ARGS --bbr"
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
+          [ -z "${{ github.event.inputs.ksu_version_code }}" ] || ARGS="$ARGS --ksu-version-code=${{ github.event.inputs.ksu_version_code }}"
           [ -z "${{ github.event.inputs.custom_version }}" ] || ARGS="$ARGS --custom-version=${{ github.event.inputs.custom_version }}"
           [ "${{ github.event.inputs.make_release }}" = "true" ] || ARGS="$ARGS --no-release"
 

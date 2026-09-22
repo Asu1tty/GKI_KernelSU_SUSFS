@@ -85,6 +85,7 @@ python build.py --list-matrix
 | `--ksu-version` | SukiSU-Ultra 版本 (Stable/Dev) | Stable(标准) |
 | `--ksu-commit` | 指定 SukiSU-Ultra commit hash | latest |
 | `--susfs-commit` | 指定 SUSFS commit (hash 或 HEAD~N) | latest |
+| `--ksu-version-code` | 钉住内核侧 SukiSU 版本号 (与发布的管理器 APK 对齐) | 40900 |
 | `--zram` | 启用 ZRAM (LZ4KD) | False |
 | `--no-kpm` | 禁用 KPM | False |
 | `--bbg` | 启用 Baseband-guard | False |
@@ -110,6 +111,14 @@ python build.py --list-matrix
 > `kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch`，会直接报链接错误
 > `undefined symbol`。已验证可用的组合：
 > `android14 / 6.1 / 145 / 2025-09` + `kernelsu_commit` 留空 + `susfs_commit=3042e23`。
+>
+> **内核侧版本号必须和管理器 APK 对齐**：KernelSU 的 `KSU_VERSION` 由
+> `KernelSU/kernel/Makefile` 实时抓取上游 main 分支的提交数算出
+> (`40000 + 提交数 - 2815`)，与所编译的 commit 无关，所以它会随时间漂移。
+> 例如 SukiSU v4.2.0 的 APK 是 `SukiSU_v4.2.0_40900-release.apk`，配套内核必须同样
+> 报告 40900，否则管理器会提示版本不一致（今天直接编出来是 40939）。
+> 本仓库用 `--ksu-version-code 40900`（workflow 里的「SukiSU 版本号」）把
+> `LOCAL_COUNT` 写死，从而固定输出 40900。
 
 ---
 
