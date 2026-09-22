@@ -99,6 +99,11 @@ python build.py --list-matrix
 | `--dry-run` | 仅验证配置 | - |
 | `--workspace`, `-w` | 工作目录 | /tmp/gki-build |
 
+> **注意**：SukiSU-Ultra 已把 SUSFS 集成从 `main` 分支移到 `builtin` 分支。
+> `--ksu-commit` / workflow 里的「指定 KernelSU commit hash」请留空（自动使用 `builtin` 分支），
+> 或填写 `builtin` 分支上的提交。填 `main` 分支上的 tag/commit（例如 v4.2.0 的
+> `85eb4a95`）会因缺少 `KSU_SUSFS` Kconfig 而构建失败（脚本会提前报错提示）。
+
 ---
 
 ## 下载

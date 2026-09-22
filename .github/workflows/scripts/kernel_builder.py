@@ -305,8 +305,34 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         logger.info("=== 应用 SukiSU 补丁 ===")
         self._chdir(self.work_dir / "common")
         hooks_patch = self.sukisu_patch_dir / "69_hide_stuff.patch"
-        if hooks_patch.exists():
-            self._run_cmd(f"cp {hooks_patch} . && patch -p1 -F 3 < 69_hide_stuff.patch", check=False)
+        if not hooks_patch.exists():
+            return
+        self._run_cmd(f"cp {hooks_patch} .", check=False)
+        # 该补丁用于伪装 lineage 相关路径，与 KernelSU/SUSFS 功能无关。
+        # 它已长期未更新，用 -F 3 允许 fuzz 会把它插到错误位置（例如落进
+        # #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT 内部），从而触发 -Werror 编译失败，
+        # 所以这里先无 fuzz 试跑，只有能干净应用时才真正打补丁。
+        probe = self._run_cmd("patch -p1 -F 0 --dry-run < 69_hide_stuff.patch",
+                              check=False, capture_output=True)
+        if probe.returncode != 0:
+            logger.warning("69_hide_stuff.patch 与当前内核源码不匹配，已跳过（仅影响 lineage 路径伪装）")
+            return
+        self._run_cmd("patch -p1 -F 0 < 69_hide_stuff.patch", check=False)
+
+    def verify_susfs_integration(self):
+        logger.info("=== 校验 KernelSU 的 SUSFS 集成 ===")
+        kconfig = self.work_dir / "KernelSU/kernel/Kconfig"
+        if not kconfig.exists():
+            logger.warning(f"未找到 KernelSU Kconfig: {kconfig}，跳过 SUSFS 集成校验")
+            return
+        with open(kconfig) as f:
+            content = f.read()
+        if "config KSU_SUSFS" not in content:
+            logger.error("当前 KernelSU 源码不包含 SUSFS 集成（kernel/Kconfig 缺少 KSU_SUSFS）")
+            logger.error("SukiSU-Ultra 已把 SUSFS 集成移到 builtin 分支，main 分支的 tag/commit（如 v4.2.0 的 85eb4a95）不再包含它")
+            logger.error("解决办法: 将 kernelsu_commit 留空（默认使用 builtin 分支），或填写 builtin 分支上的提交")
+            raise RuntimeError("KernelSU 缺少 SUSFS 集成，请改用 builtin 分支的提交")
+        logger.info("KernelSU 源码包含 SUSFS 集成")
 
     def apply_zram_patches(self):
         if not self.config.use_zram:
@@ -738,6 +764,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self.init_and_sync_kernel()
             self.add_kernel_supatch()
             self.add_kernelsu()
+            self.verify_susfs_integration()
             self.add_bbg()
             self.apply_susfs_patches()
             self.apply_sukisu_patches()
