@@ -61,7 +61,6 @@ class KernelBuilder:
     KERNEL_CONFIG_TEMPLATE = """
 # === KernelSU Config ===
 CONFIG_KSU=y
-CONFIG_KPM=y
 CONFIG_KSU_SUSFS_SUS_SU=n
 
 # === TMPFS Config ===
@@ -95,6 +94,7 @@ CONFIG_KSU_SUSFS_ENABLE_LOG=y
 CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
 CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
 CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -266,7 +266,23 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._chdir(ksu_dir)
                 self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
                 self._chdir(self.work_dir)
+        self.ensure_susfs_priority_uid_filter()
         self.pin_ksu_version()
+
+    def ensure_susfs_priority_uid_filter(self):
+        """Declare the SUSFS option used by recent builtin KernelSU sources."""
+        kconfig = self.work_dir / "KernelSU/kernel/Kconfig"
+        content = kconfig.read_text()
+        if "config KSU_SUSFS_PRIORITY_UID_FILTER" in content:
+            return
+        anchor = "config KSU_SUSFS_SUS_PATH\n"
+        if anchor not in content:
+            raise RuntimeError("KernelSU Kconfig 缺少 SUSFS 配置插入位置")
+        option = ("config KSU_SUSFS_PRIORITY_UID_FILTER\n"
+                  "\tbool \"Enable priority UID filter\"\n"
+                  "\tdepends on KSU_SUSFS\n"
+                  "\tdefault y\n\n")
+        kconfig.write_text(content.replace(anchor, option + anchor, 1))
 
     def pin_ksu_version(self):
         if not self.config.ksu_version_code:
@@ -473,6 +489,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
         with open(config_file, "a") as f:
             f.write(self.KERNEL_CONFIG_TEMPLATE)
+            f.write(f"CONFIG_KPM={'y' if self.config.use_kpm else 'n'}\n")
             if self.config.kernel_version != "6.6":
                 f.write("CONFIG_KSU_SUSFS_SUS_PATH=y\n")
             else:
