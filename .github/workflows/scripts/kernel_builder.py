@@ -193,26 +193,35 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         formatted_branch = self.config.formatted_branch
 
         self._run_cmd(f"$REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest "
-                     f"-b common-{formatted_branch} --repo-rev=v2.16", check=False)
+                     f"-b common-{formatted_branch} --repo-rev=v2.16")
 
-        remote = subprocess.run(f"git ls-remote https://android.googlesource.com/kernel/common {formatted_branch}",
-                               shell=True, capture_output=True, text=True).stdout.strip()
-        if "deprecated" in remote:
+        refs = subprocess.run(
+            ["git", "ls-remote", "--heads", "https://android.googlesource.com/kernel/common",
+             f"refs/heads/{formatted_branch}", f"refs/heads/deprecated/{formatted_branch}"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        available_refs = {line.split("\t", 1)[1] for line in refs.splitlines() if "\t" in line}
+        if f"refs/heads/{formatted_branch}" in available_refs:
+            remote_branch = formatted_branch
+        elif f"refs/heads/deprecated/{formatted_branch}" in available_refs:
+            remote_branch = f"deprecated/{formatted_branch}"
             manifest_path = self.work_dir / ".repo/manifests/default.xml"
             with open(manifest_path, "r") as f:
                 content = f.read()
-            content = content.replace(f'"{formatted_branch}"', f'"deprecated/{formatted_branch}"')
+            content = content.replace(f'"{formatted_branch}"', f'"{remote_branch}"')
             with open(manifest_path, "w") as f:
                 f.write(content)
+        else:
+            raise RuntimeError(f"找不到 GKI 源码分支: {formatted_branch}")
 
-        self.env["REMOTE_BRANCH"] = remote
+        self.env["REMOTE_BRANCH"] = remote_branch
         logger.info("同步内核源代码...")
-        self._run_cmd("$REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast", check=False)
+        self._run_cmd("$REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast")
 
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
             raise RuntimeError("repo sync 失败，common 目录不存在")
-        self._apply_legacy_fixes(remote)
+        self._apply_legacy_fixes(remote_branch)
         logger.info("=== 内核源代码同步完成 ===")
 
     def _apply_legacy_fixes(self, remote_branch: str = ""):
@@ -314,20 +323,19 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self._chdir(self.work_dir)
         common_dir = self.work_dir / "common"
         susfs_patch = self.susfs_dir / "kernel_patches" / self.config.get_susfs_patch_filename()
-        if susfs_patch.exists():
-            self._run_cmd(f"cp {susfs_patch} {common_dir}/", check=False)
+        if not susfs_patch.is_file():
+            raise RuntimeError(f"找不到 SUSFS 补丁: {susfs_patch}")
+        self._run_cmd(f"cp {susfs_patch} {common_dir}/")
         for src, dst in [
             (self.susfs_dir / "kernel_patches/fs", common_dir / "fs/"),
             (self.susfs_dir / "kernel_patches/include/linux", common_dir / "include/linux/"),
         ]:
             if src.exists():
                 self._run_cmd(f"cp -r {src}/* {dst}", check=False)
-        if susfs_patch.exists():
-            patch_file = common_dir / self.config.get_susfs_patch_filename()
-            if patch_file.exists():
-                self._chdir(common_dir)
-                self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}", check=False)
-                self._chdir(self.work_dir)
+        patch_file = common_dir / self.config.get_susfs_patch_filename()
+        self._chdir(common_dir)
+        self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}")
+        self._chdir(self.work_dir)
 
     def apply_sukisu_patches(self):
         logger.info("=== 应用 SukiSU 补丁 ===")
