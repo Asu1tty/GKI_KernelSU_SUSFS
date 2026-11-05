@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from config import (BuildConfig, KSU_REPO_CONFIG, SUSFS_REPO_CONFIG, SUKISU_PATCH_REPO_CONFIG,
                    ANYKERNEL_CONFIG, KERNEL_PATCHES_CONFIG, BBG_CONFIG, TOOLCHAIN_CONFIG,
-                   LEGACY_FIXES, OP8E_PATCH_URL, KPM_PATCH_URL)
+                   LEGACY_FIXES, OP8E_PATCH_URL, KPM_TOOLS_URL, KPM_IMAGE_URL)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -61,7 +61,6 @@ class KernelBuilder:
     KERNEL_CONFIG_TEMPLATE = """
 # === KernelSU Config ===
 CONFIG_KSU=y
-CONFIG_KPM=y
 CONFIG_KSU_SUSFS_SUS_SU=n
 
 # === TMPFS Config ===
@@ -95,6 +94,7 @@ CONFIG_KSU_SUSFS_ENABLE_LOG=y
 CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
 CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
 CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -193,26 +193,35 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         formatted_branch = self.config.formatted_branch
 
         self._run_cmd(f"$REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest "
-                     f"-b common-{formatted_branch} --repo-rev=v2.16", check=False)
+                     f"-b common-{formatted_branch} --repo-rev=v2.16")
 
-        remote = subprocess.run(f"git ls-remote https://android.googlesource.com/kernel/common {formatted_branch}",
-                               shell=True, capture_output=True, text=True).stdout.strip()
-        if "deprecated" in remote:
+        refs = subprocess.run(
+            ["git", "ls-remote", "--heads", "https://android.googlesource.com/kernel/common",
+             f"refs/heads/{formatted_branch}", f"refs/heads/deprecated/{formatted_branch}"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        available_refs = {line.split("\t", 1)[1] for line in refs.splitlines() if "\t" in line}
+        if f"refs/heads/{formatted_branch}" in available_refs:
+            remote_branch = formatted_branch
+        elif f"refs/heads/deprecated/{formatted_branch}" in available_refs:
+            remote_branch = f"deprecated/{formatted_branch}"
             manifest_path = self.work_dir / ".repo/manifests/default.xml"
             with open(manifest_path, "r") as f:
                 content = f.read()
-            content = content.replace(f'"{formatted_branch}"', f'"deprecated/{formatted_branch}"')
+            content = content.replace(f'"{formatted_branch}"', f'"{remote_branch}"')
             with open(manifest_path, "w") as f:
                 f.write(content)
+        else:
+            raise RuntimeError(f"找不到 GKI 源码分支: {formatted_branch}")
 
-        self.env["REMOTE_BRANCH"] = remote
+        self.env["REMOTE_BRANCH"] = remote_branch
         logger.info("同步内核源代码...")
-        self._run_cmd("$REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast", check=False)
+        self._run_cmd("$REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast")
 
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
             raise RuntimeError("repo sync 失败，common 目录不存在")
-        self._apply_legacy_fixes(remote)
+        self._apply_legacy_fixes(remote_branch)
         logger.info("=== 内核源代码同步完成 ===")
 
     def _apply_legacy_fixes(self, remote_branch: str = ""):
@@ -257,7 +266,23 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._chdir(ksu_dir)
                 self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
                 self._chdir(self.work_dir)
+        self.ensure_susfs_priority_uid_filter()
         self.pin_ksu_version()
+
+    def ensure_susfs_priority_uid_filter(self):
+        """Declare the SUSFS option used by recent builtin KernelSU sources."""
+        kconfig = self.work_dir / "KernelSU/kernel/Kconfig"
+        content = kconfig.read_text()
+        if "config KSU_SUSFS_PRIORITY_UID_FILTER" in content:
+            return
+        anchor = "config KSU_SUSFS_SUS_PATH\n"
+        if anchor not in content:
+            raise RuntimeError("KernelSU Kconfig 缺少 SUSFS 配置插入位置")
+        option = ("config KSU_SUSFS_PRIORITY_UID_FILTER\n"
+                  "\tbool \"Enable priority UID filter\"\n"
+                  "\tdepends on KSU_SUSFS\n"
+                  "\tdefault y\n\n")
+        kconfig.write_text(content.replace(anchor, option + anchor, 1))
 
     def pin_ksu_version(self):
         if not self.config.ksu_version_code:
@@ -314,20 +339,19 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self._chdir(self.work_dir)
         common_dir = self.work_dir / "common"
         susfs_patch = self.susfs_dir / "kernel_patches" / self.config.get_susfs_patch_filename()
-        if susfs_patch.exists():
-            self._run_cmd(f"cp {susfs_patch} {common_dir}/", check=False)
+        if not susfs_patch.is_file():
+            raise RuntimeError(f"找不到 SUSFS 补丁: {susfs_patch}")
+        self._run_cmd(f"cp {susfs_patch} {common_dir}/")
         for src, dst in [
             (self.susfs_dir / "kernel_patches/fs", common_dir / "fs/"),
             (self.susfs_dir / "kernel_patches/include/linux", common_dir / "include/linux/"),
         ]:
             if src.exists():
                 self._run_cmd(f"cp -r {src}/* {dst}", check=False)
-        if susfs_patch.exists():
-            patch_file = common_dir / self.config.get_susfs_patch_filename()
-            if patch_file.exists():
-                self._chdir(common_dir)
-                self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}", check=False)
-                self._chdir(self.work_dir)
+        patch_file = common_dir / self.config.get_susfs_patch_filename()
+        self._chdir(common_dir)
+        self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}")
+        self._chdir(self.work_dir)
 
     def apply_sukisu_patches(self):
         logger.info("=== 应用 SukiSU 补丁 ===")
@@ -465,6 +489,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
         with open(config_file, "a") as f:
             f.write(self.KERNEL_CONFIG_TEMPLATE)
+            f.write(f"CONFIG_KPM={'y' if self.config.use_kpm else 'n'}\n")
             if self.config.kernel_version != "6.6":
                 f.write("CONFIG_KSU_SUSFS_SUS_PATH=y\n")
             else:
@@ -631,10 +656,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         logger.info("关键配置状态:")
         for prefix, name in key_configs.items():
             found = [c for c in config_lines if c.startswith(prefix)]
-            if found:
-                status = "已启用"
-            else:
-                status = "未配置"
+            status = "已启用" if f"{prefix}=y" in found else "已关闭" if found else "未配置"
             logger.info(f"  [{status}] {name}")
             if found:
                 for f in sorted(found):
@@ -688,15 +710,29 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
         if self.config.android_version in ["android12", "android13"]:
             image_dir = self.work_dir / f"out/{self.config.android_version}-{self.config.kernel_version}/dist"
+            kernel_config = self.work_dir / f"out/{self.config.android_version}-{self.config.kernel_version}/common/.config"
+            if not kernel_config.is_file() or "CONFIG_KPM=y" not in kernel_config.read_text().splitlines():
+                raise RuntimeError(f"已请求 KPM，但实际内核配置未启用 CONFIG_KPM=y: {kernel_config}")
         else:
             image_dir = self.work_dir / "bazel-bin/common/kernel_aarch64"
 
         if not image_dir.exists():
-            return
+            raise RuntimeError(f"找不到 KPM 待修补镜像目录: {image_dir}")
         self._chdir(image_dir)
-        self._run_cmd(f"curl -LSs {KPM_PATCH_URL} -o patch && chmod 777 patch && ./patch", check=False)
-        if (image_dir / "oImage").exists():
-            self._run_cmd("mv oImage Image", check=False)
+        self._run_cmd(f"curl -fLSs {KPM_TOOLS_URL} -o kptools-linux && "
+                      f"curl -fLSs {KPM_IMAGE_URL} -o kpimg && chmod 755 kptools-linux")
+        kpimg = image_dir / "kpimg"
+        if kpimg.stat().st_size < 65536 or kpimg.read_bytes()[:2] != b"KP":
+            raise RuntimeError(f"KPM payload 不完整: {kpimg}")
+        self._run_cmd("./kptools-linux -p -i Image -k kpimg -s 123 -o oImage")
+        patched_image = image_dir / "oImage"
+        if not patched_image.is_file() or patched_image.stat().st_size == 0:
+            raise RuntimeError(f"KPM 修补没有生成 oImage: {patched_image}")
+        patch_info = self._run_cmd("./kptools-linux -l -i oImage", capture_output=True).stdout
+        if "patched=true" not in patch_info or "version=0xe00" not in patch_info:
+            raise RuntimeError(f"KPM 镜像校验失败: {patch_info}")
+        self._run_cmd("mv oImage Image")
+        self._run_cmd("lz4 -l -9 -f Image Image.lz4")
 
     def prepare_boot_images(self) -> list:
         logger.info("=== 准备启动镜像 ===")
