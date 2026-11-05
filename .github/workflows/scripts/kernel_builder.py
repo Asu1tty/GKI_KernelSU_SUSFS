@@ -656,10 +656,7 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
         logger.info("关键配置状态:")
         for prefix, name in key_configs.items():
             found = [c for c in config_lines if c.startswith(prefix)]
-            if found:
-                status = "已启用"
-            else:
-                status = "未配置"
+            status = "已启用" if f"{prefix}=y" in found else "已关闭" if found else "未配置"
             logger.info(f"  [{status}] {name}")
             if found:
                 for f in sorted(found):
@@ -713,15 +710,20 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
 
         if self.config.android_version in ["android12", "android13"]:
             image_dir = self.work_dir / f"out/{self.config.android_version}-{self.config.kernel_version}/dist"
+            kernel_config = self.work_dir / f"out/{self.config.android_version}-{self.config.kernel_version}/common/.config"
+            if not kernel_config.is_file() or "CONFIG_KPM=y" not in kernel_config.read_text().splitlines():
+                raise RuntimeError(f"已请求 KPM，但实际内核配置未启用 CONFIG_KPM=y: {kernel_config}")
         else:
             image_dir = self.work_dir / "bazel-bin/common/kernel_aarch64"
 
         if not image_dir.exists():
-            return
+            raise RuntimeError(f"找不到 KPM 待修补镜像目录: {image_dir}")
         self._chdir(image_dir)
-        self._run_cmd(f"curl -LSs {KPM_PATCH_URL} -o patch && chmod 777 patch && ./patch", check=False)
-        if (image_dir / "oImage").exists():
-            self._run_cmd("mv oImage Image", check=False)
+        self._run_cmd(f"curl -fLSs {KPM_PATCH_URL} -o patch && chmod 755 patch && ./patch")
+        patched_image = image_dir / "oImage"
+        if not patched_image.is_file() or patched_image.stat().st_size == 0:
+            raise RuntimeError(f"KPM 修补没有生成 oImage: {patched_image}")
+        self._run_cmd("mv oImage Image")
 
     def prepare_boot_images(self) -> list:
         logger.info("=== 准备启动镜像 ===")
