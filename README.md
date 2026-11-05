@@ -15,6 +15,10 @@
 
 ### GitHub Actions
 
+Pixel 6 Pro (`raven`) 的 Android 13 / 5.10.198 / SukiSU 41140 / KPM
+已验证配置、产物验收和故障记录见
+[专用构建指南](docs/raven-android13-5.10.198-kpm.md)。
+
 #### 方式一：构建单个版本
 1. 进入 **Actions** 页面
 2. 选择 **Kernel Build**
