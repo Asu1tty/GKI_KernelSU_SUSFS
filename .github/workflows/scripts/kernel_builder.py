@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from config import (BuildConfig, KSU_REPO_CONFIG, SUSFS_REPO_CONFIG, SUKISU_PATCH_REPO_CONFIG,
                    ANYKERNEL_CONFIG, KERNEL_PATCHES_CONFIG, BBG_CONFIG, TOOLCHAIN_CONFIG,
-                   LEGACY_FIXES, OP8E_PATCH_URL, KPM_PATCH_URL)
+                   LEGACY_FIXES, OP8E_PATCH_URL, KPM_TOOLS_URL, KPM_IMAGE_URL)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -719,11 +719,20 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
         if not image_dir.exists():
             raise RuntimeError(f"找不到 KPM 待修补镜像目录: {image_dir}")
         self._chdir(image_dir)
-        self._run_cmd(f"curl -fLSs {KPM_PATCH_URL} -o patch && chmod 755 patch && ./patch")
+        self._run_cmd(f"curl -fLSs {KPM_TOOLS_URL} -o kptools-linux && "
+                      f"curl -fLSs {KPM_IMAGE_URL} -o kpimg && chmod 755 kptools-linux")
+        kpimg = image_dir / "kpimg"
+        if kpimg.stat().st_size < 65536 or kpimg.read_bytes()[:2] != b"KP":
+            raise RuntimeError(f"KPM payload 不完整: {kpimg}")
+        self._run_cmd("./kptools-linux -p -i Image -k kpimg -s 123 -o oImage")
         patched_image = image_dir / "oImage"
         if not patched_image.is_file() or patched_image.stat().st_size == 0:
             raise RuntimeError(f"KPM 修补没有生成 oImage: {patched_image}")
+        patch_info = self._run_cmd("./kptools-linux -l -i oImage", capture_output=True).stdout
+        if "patched=true" not in patch_info or "version=0xe00" not in patch_info:
+            raise RuntimeError(f"KPM 镜像校验失败: {patch_info}")
         self._run_cmd("mv oImage Image")
+        self._run_cmd("lz4 -l -9 -f Image Image.lz4")
 
     def prepare_boot_images(self) -> list:
         logger.info("=== 准备启动镜像 ===")
