@@ -30,7 +30,28 @@ Pixel 6 Pro (`raven`) 的 Android 13 / 5.10.198 / SukiSU 41140 / KPM
 1. 选择 **Build Kernels**
 2. 点击 **Run workflow**
 3. 设置全局选项（KSU 版本、ZRAM、KPM 等）
-4. 可选：指定 commit 版本
+4. 默认固定 SukiSU `1cfa57340590971cba7521ed536da8ebbedc5f0a`、管理器版本号 `41140`；
+   SUSFS 留空，由 `config/susfs-pins.json` 为每个内核系列选择固定提交。
+   单个 SUSFS 提交通常只包含一个系列的补丁，不要跨系列共用。
+5. 一次构建以下 **20 个组合**，最多并行 4 个；失败不会取消其余版本。
+   默认 KPM 开启，但 6.6 因现有实现不支持而自动关闭。
+6. 在运行页面的 **Artifacts** 下载各版本 `kernel-*` 和 `build-summary`。
+   包含 AnyKernel3、通用 boot 镜像、独立 SHA256 校验和与构建参数，保留 14 天。
+   未配置 `BOOT_SIGN_KEY` 时通用 boot 镜像不签名。
+7. 默认不创建 Release、不发送 Telegram。需要发布时勾选 `make_release`；
+   仅当全部构建和产物检查通过后发布，使用本次运行独立的 tag。
+
+这里的“全版本”指下表中的仓库构建矩阵，不是 AOSP 历史上每一个 GKI 版本。
+除专用指南中的 raven 配置外，其余组合仍需实际编译和设备验证。
+
+```bash
+gh workflow run build-kernels.yml -R Asu1tty/GKI_KernelSU_SUSFS \
+  --ref codex/full-gki-matrix \
+  -f 'kernelsu_version=Stable(标准)' \
+  -f kernelsu_commit=1cfa57340590971cba7521ed536da8ebbedc5f0a \
+  -f ksu_version_code=41140 -f use_kpm=true \
+  -f use_zram=false -f BBG=false -f make_release=false -f send_telegram=false
+```
 
 ### 命令行本地构建
 
@@ -69,11 +90,12 @@ python build.py --list-matrix
 | Android | Kernel | Sub Levels | OS Patch |
 |---------|--------|------------|----------|
 | 12 | 5.10 | 136, 198, 209, 236, X (LTS) | 2022-11 ~ 2025-05 |
+| 13 | 5.10 | 198 | 2024-01 |
 | 13 | 5.15 | 74, 123, 148, 170, 178, 180 | 2023-01 ~ 2025-05 |
 | 14 | 6.1 | 78, 90, 99, 124, 145 | 2024-06 ~ 2025-09 |
 | 15 | 6.6 | 50, 66, 102 | 2024-10 ~ 2025-10 |
 
-总计 **19 个版本组合**
+总计 **20 个版本组合**。GitHub Actions 与命令行 `--all` 共用此矩阵。
 
 ---
 

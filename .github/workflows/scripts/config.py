@@ -188,6 +188,7 @@ class BuildConfig:
             "os_patch_level": self.os_patch_level,
             "kernelsu_version": self.kernelsu_version,
             "kernelsu_commit": self.kernelsu_commit,
+            "susfs_commit": self.susfs_commit,
             "ksu_version_code": self.ksu_version_code,
             "use_zram": self.use_zram,
             "use_kpm": self.use_kpm,

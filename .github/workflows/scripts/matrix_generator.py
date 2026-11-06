@@ -12,6 +12,7 @@ def generate_build_matrix() -> list:
     with open(matrix_path, 'r') as f:
         matrix = json.load(f)
 
+    pins = json.loads((matrix_path.parent / "susfs-pins.json").read_text())
     builds = []
     for key, configs in matrix.items():
         android, kernel = key.split('-')
@@ -21,6 +22,7 @@ def generate_build_matrix() -> list:
                 "kernel": kernel,
                 "sub_level": cfg["sub_level"],
                 "os_patch": cfg["os_patch_level"],
+                "susfs_commit": pins[key],
             }
             if "revision" in cfg:
                 build["revision"] = cfg["revision"]
@@ -29,8 +31,8 @@ def generate_build_matrix() -> list:
     # 按 Android 版本和 Kernel 版本排序
     builds.sort(key=lambda x: (
         int(x["android"].replace("android", "")),
-        float(x["kernel"]),
-        x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"  # X (LTS) 排在最后
+        tuple(map(int, x["kernel"].split("."))),
+        int(x["sub_level"]) if x["sub_level"] != "X" else float("inf")  # X (LTS) 排在最后
     ))
 
     return builds
@@ -56,11 +58,11 @@ def generate_classified_matrix() -> dict:
     sorted_classified = {}
     for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
         sorted_classified[android] = {}
-        for kernel in sorted(classified[android].keys(), key=lambda x: float(x)):
+        for kernel in sorted(classified[android].keys(), key=lambda x: tuple(map(int, x.split(".")))):
             # 按 sub_level 排序，X (LTS) 排在最后
             sorted_classified[android][kernel] = sorted(
                 classified[android][kernel],
-                key=lambda x: x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"
+                key=lambda x: int(x["sub_level"]) if x["sub_level"] != "X" else float("inf")
             )
 
     return sorted_classified
@@ -73,8 +75,9 @@ def save_matrix_output():
         f.write(output + '\n')
     print(f"Matrix generated: {len(builds)} builds")
 
-    # 保存版本号
-    version_output = f'kernel_version={KERNEL_VERSION}'
+    # 每次运行使用独立 tag，避免覆盖旧产物。
+    release_tag = f"gki-{os.environ.get('GITHUB_RUN_ID', 'local')}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
+    version_output = f'kernel_version={release_tag}'
     with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
         f.write(version_output + '\n')
     print(f"Kernel version: {KERNEL_VERSION}")
@@ -108,6 +111,9 @@ def save_matrix_output():
 
     with open("matrix_summary.md", 'w', encoding='utf-8') as f:
         f.write(md_summary)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+            f.write(f"Total: {len(builds)} builds\n\n" + md_summary)
 
 
 if __name__ == '__main__':

@@ -135,10 +135,10 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
         self._chdir(self.susfs_dir)
         if self.config.susfs_commit.startswith("HEAD~"):
             self._run_cmd("git fetch origin", check=False)
-            self._run_cmd(f"git reset --hard {self.config.susfs_commit}", check=False)
+            self._run_cmd(f"git reset --hard {self.config.susfs_commit}")
         else:
             self._run_cmd("git fetch origin", check=False)
-            self._run_cmd(f"git checkout {self.config.susfs_commit}", check=False)
+            self._run_cmd(f"git checkout {self.config.susfs_commit}")
         self._chdir(self.workspace)
 
     def clone_repositories(self):
@@ -264,7 +264,7 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
             ksu_dir = self.work_dir / "KernelSU"
             if ksu_dir.exists():
                 self._chdir(ksu_dir)
-                self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
+                self._run_cmd(f"git checkout {self.config.kernelsu_commit}")
                 self._chdir(self.work_dir)
         self.ensure_susfs_priority_uid_filter()
         self.pin_ksu_version()
@@ -789,7 +789,10 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
             if has_ramdisk:
                 cmd += f" --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level {self.config.os_patch_level}"
             self._run_cmd(cmd, check=False)
-            self._run_cmd(f"$AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image {output_file} --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH", check=False)
+            if self.env.get("BOOT_SIGN_KEY_PATH"):
+                self._run_cmd(f"$AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image {output_file} --algorithm SHA256_RSA2048 --key \"$BOOT_SIGN_KEY_PATH\"")
+            else:
+                logger.warning("未配置 BOOT_SIGN_KEY，生成未签名的通用 boot 镜像")
             dest = self.work_dir / f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}-{output_file}"
             self._run_cmd(f"cp {output_file} {dest}", check=False)
             artifacts.append(str(dest))
