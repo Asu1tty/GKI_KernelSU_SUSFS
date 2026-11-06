@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Optional, Callable
 from dataclasses import dataclass, field
+from patch_compat import adapt_namespace_context
 
 from config import (BuildConfig, KSU_REPO_CONFIG, SUSFS_REPO_CONFIG, SUKISU_PATCH_REPO_CONFIG,
                    ANYKERNEL_CONFIG, KERNEL_PATCHES_CONFIG, BBG_CONFIG, TOOLCHAIN_CONFIG,
@@ -349,8 +350,15 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
             if src.exists():
                 self._run_cmd(f"cp -r {src}/* {dst}", check=False)
         patch_file = common_dir / self.config.get_susfs_patch_filename()
+        namespace_source = common_dir / "fs/namespace.c"
+        if namespace_source.is_file():
+            original = patch_file.read_text()
+            adapted = adapt_namespace_context(original, namespace_source.read_text())
+            if adapted != original:
+                logger.info("适配 SUSFS namespace 补丁：源码没有 blk.h 上下文，保留全部功能改动")
+                patch_file.write_text(adapted)
         self._chdir(common_dir)
-        self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}")
+        self._run_cmd(f"patch --batch -p1 --fuzz=3 < {patch_file}")
         self._chdir(self.work_dir)
 
     def apply_sukisu_patches(self):
@@ -809,11 +817,12 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
             if not image_path.exists():
                 continue
             zip_name = f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}-AnyKernel3{suffix}.zip"
-            self._run_cmd(f"cp {image_path} {ak3_dir}/", check=False)
+            self._run_cmd(f"cp {image_path} {ak3_dir}/")
             self._chdir(ak3_dir)
-            self._run_cmd(f"zip -r ../{zip_name} ./*", check=False)
-            self._run_cmd(f"rm {ak3_dir}/{image_file}", check=False)
-            artifacts.append(str(self.work_dir / zip_name))
+            zip_path = self.work_dir / zip_name
+            self._run_cmd(f"zip -r {zip_path} ./*")
+            self._run_cmd(f"rm {ak3_dir}/{image_file}")
+            artifacts.append(str(zip_path))
             self._chdir(self.work_dir)
         return artifacts
 

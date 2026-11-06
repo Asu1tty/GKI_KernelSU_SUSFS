@@ -1,7 +1,9 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -15,9 +17,60 @@ sys.path.insert(0, str(SCRIPTS))
 with patch.dict(sys.modules, {'config': types.SimpleNamespace(KERNEL_VERSION='test')}):
     import matrix_generator
 import build_summary
+from patch_compat import adapt_namespace_context
+with patch('urllib.request.urlopen', side_effect=OSError('offline test')):
+    from config import BuildConfig
+    from kernel_builder import KernelBuilder
 
 
 class FullMatrixTests(unittest.TestCase):
+    def test_real_packaging_outputs_can_be_collected(self):
+        previous_cwd = Path.cwd()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config = BuildConfig('android13', '5.10', '198', '2024-01')
+                builder = KernelBuilder(config, tmp)
+                builder.anykernel_dir.mkdir()
+                (builder.anykernel_dir / 'anykernel.sh').write_text('# test template\n')
+                (builder.work_dir / 'Image').write_bytes(b'test kernel image')
+                artifacts = builder.create_anykernel_zips()
+                self.assertEqual(1, len(artifacts))
+                self.assertEqual(builder.work_dir, Path(artifacts[0]).parent)
+                self.assertTrue(Path(artifacts[0]).is_file())
+                result = root / 'result.json'
+                result.write_text(json.dumps({'total': 1, 'success': 1,
+                    'results': [{'artifacts': artifacts, 'config': config.to_dict()}]}))
+                build_summary.collect(result, root / 'uploaded')
+                with zipfile.ZipFile(root / 'uploaded' / Path(artifacts[0]).name) as archive:
+                    self.assertEqual(b'test kernel image', archive.read('Image'))
+        finally:
+            os.chdir(previous_cwd)
+
+    def test_namespace_context_adaptation_preserves_functional_changes(self):
+        source = '#include "internal.h"\n\n/* mounts */\n'
+        diff = ('diff --git a/fs/namespace.c b/fs/namespace.c\n'
+                '--- a/fs/namespace.c\n+++ b/fs/namespace.c\n'
+                '@@ -1,4 +1,7 @@\n'
+                ' #include "internal.h"\n #include <trace/hooks/blk.h>\n \n'
+                '+#ifdef CONFIG_KSU_SUSFS\n+#include <linux/susfs_def.h>\n+#endif\n'
+                ' /* mounts */\n')
+        adapted = adapt_namespace_context(diff, source)
+        self.assertEqual([s for s in diff.splitlines() if s.startswith(('+', '-'))],
+                         [s for s in adapted.splitlines() if s.startswith(('+', '-'))])
+        self.assertEqual(diff, adapt_namespace_context(diff, '#include <trace/hooks/blk.h>'))
+        self.assertEqual(adapted, adapt_namespace_context(adapted, source))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'fs').mkdir()
+            (root / 'fs/namespace.c').write_text(source)
+            before = subprocess.run(['patch', '--batch', '--dry-run', '-F0', '-p1'],
+                                    cwd=root, input=diff, text=True, capture_output=True)
+            self.assertNotEqual(0, before.returncode)
+            subprocess.run(['patch', '--batch', '-F0', '-p1'], cwd=root,
+                           input=adapted, text=True, capture_output=True, check=True)
+            self.assertIn('#include <linux/susfs_def.h>', (root / 'fs/namespace.c').read_text())
+
     def test_matrix_coverage_and_pins(self):
         matrix = matrix_generator.generate_build_matrix()
         self.assertEqual(20, len(matrix))

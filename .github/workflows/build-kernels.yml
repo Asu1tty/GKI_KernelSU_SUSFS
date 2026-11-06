@@ -71,6 +71,8 @@ jobs:
       release_tag: ${{ steps.generate.outputs.kernel_version }}
     steps:
       - uses: actions/checkout@v6
+      - name: Test build orchestration
+        run: python3 -m unittest discover -s tests -v
       - name: Generate build matrix
         id: generate
         run: python3 .github/workflows/scripts/matrix_generator.py
@@ -82,7 +84,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 20
       matrix:
         config: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
     env:

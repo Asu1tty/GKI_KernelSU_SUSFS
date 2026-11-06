@@ -33,7 +33,7 @@ Pixel 6 Pro (`raven`) 的 Android 13 / 5.10.198 / SukiSU 41140 / KPM
 4. 默认固定 SukiSU `1cfa57340590971cba7521ed536da8ebbedc5f0a`、管理器版本号 `41140`；
    SUSFS 留空，由 `config/susfs-pins.json` 为每个内核系列选择固定提交。
    单个 SUSFS 提交通常只包含一个系列的补丁，不要跨系列共用。
-5. 一次构建以下 **20 个组合**，最多并行 4 个；失败不会取消其余版本。
+5. 一次构建以下 **20 个组合**，最多并行 20 个；失败不会取消其余版本。
    默认 KPM 开启，但 6.6 因现有实现不支持而自动关闭。
 6. 在运行页面的 **Artifacts** 下载各版本 `kernel-*` 和 `build-summary`。
    包含 AnyKernel3、通用 boot 镜像、独立 SHA256 校验和与构建参数，保留 14 天。
