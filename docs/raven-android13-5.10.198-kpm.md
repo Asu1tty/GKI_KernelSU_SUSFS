@@ -48,8 +48,24 @@ gh workflow run kernel-build.yml \
   -f set_defbbr=false -f make_release=false -f send_telegram=false
 ```
 
-This target still needs a device boot check after the Action completes. The
-41140 run below remains the latest device-verified result.
+Action [42819486819](https://github.com/Asu1tty/GKI_KernelSU_SUSFS/actions/runs/42819486819)
+succeeded on 2026-11-10 at build-script commit `7f3f6ff`. The downloaded
+AnyKernel3 package passed its ZIP integrity check. Its embedded kernel config
+contains `CONFIG_KSU=y`, `CONFIG_KPM=y`, and `CONFIG_KSU_SUSFS=y`; the Image
+contains the AVC spoofing default-enable message, and an independent
+`kptools-linux -l -i Image` check reports `patched=true`, `version=0xe00`,
+`config=android,release`, and `arch=arm64`.
+
+- AnyKernel3 ZIP SHA-256: `1ef767719f8a1c448bd44e5e5b48608815b9485e14b8d96331656d78fe1bc57a`
+- Image SHA-256: `45b61aaedefac507505786c6240814d3d4c344771c22fd1435b0d0c37272c3d4`
+
+The build also isolates the feature subsystem's forced-value bitmaps from
+the extension subsystem in the builtin unity build. The 41150 feature ID
+expands `KSU_FEATURE_MAX`; leaving both subsystems' static bitmaps under the
+same names caused conflicting array declarations during compilation.
+
+This target still needs a device boot check. The 41140 run below remains the
+latest device-verified result.
 
 ## Build
 
