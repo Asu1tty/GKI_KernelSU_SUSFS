@@ -1,4 +1,4 @@
-# Raven Android 13 GKI 5.10.198 with SukiSU 41140 and KPM
+# Raven Android 13 GKI 5.10.198 with SukiSU, KPM, and AVC log spoofing
 
 This is the verified build recipe for Pixel 6 Pro (`raven`) running
 `AP2A.240605.024` and the SukiSU v4.3.0-r1 manager APK with version code
@@ -6,6 +6,50 @@ This is the verified build recipe for Pixel 6 Pro (`raven`) running
 [41954226200](https://github.com/Asu1tty/GKI_KernelSU_SUSFS/actions/runs/41954226200)
 at build-script commit `c2588b4`. On 2026-11-05, the resulting kernel booted
 to Android (`sys.boot_completed=1`), and the manager displayed KPM.
+
+## Current 41150 / v4.3.0-r2 target
+
+The current target uses the same verified GKI and SukiSU builtin commits, but
+aligns the kernel with the
+[SukiSU v4.3.0-r2 manager APK](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/download/v4.3.0-r2/SukiSU_v4.3.0-r2_41150-release.apk)
+(version code `41150`) and enables AVC log spoofing.
+
+| Input | Value |
+| --- | --- |
+| `android_version` | `android13` |
+| `kernel_version` | `5.10` |
+| `sub_level` | `198` |
+| `os_patch_level` | `2024-01` |
+| `kernelsu_version` | `Stable(标准)` |
+| `kernelsu_commit` | `1cfa57340590971cba7521ed536da8ebbedc5f0a` |
+| `susfs_commit` | `8a120081f2739bc0e4b1f6a389d8236f22944acc` |
+| `ksu_version_code` | `41150` |
+| `use_kpm` | `true` |
+| `avc_log_spoof` | `true` |
+| `use_zram`, `BBG`, `supp_op`, `set_defbbr` | `false` |
+| `make_release`, `send_telegram` | `false` for a test build |
+
+The build injects the 41150 manager's `avc_spoof` feature id (`10003`) into the
+builtin branch and maps it to SUSFS's native AVC audit hook. The SUSFS jump
+label is enabled before userspace starts, so the 41150 manager reports the
+feature as enabled and can toggle it at runtime.
+
+```bash
+gh workflow run kernel-build.yml \
+  -R Asu1tty/GKI_KernelSU_SUSFS \
+  --ref codex/full-gki-matrix \
+  -f android_version=android13 -f kernel_version=5.10 \
+  -f sub_level=198 -f os_patch_level=2024-01 \
+  -f 'kernelsu_version=Stable(标准)' \
+  -f kernelsu_commit=1cfa57340590971cba7521ed536da8ebbedc5f0a \
+  -f susfs_commit=8a120081f2739bc0e4b1f6a389d8236f22944acc \
+  -f ksu_version_code=41150 -f use_kpm=true -f avc_log_spoof=true \
+  -f use_zram=false -f BBG=false -f supp_op=false \
+  -f set_defbbr=false -f make_release=false -f send_telegram=false
+```
+
+This target still needs a device boot check after the Action completes. The
+41140 run below remains the latest device-verified result.
 
 ## Build
 
@@ -48,7 +92,8 @@ gh workflow run kernel-build.yml \
 The build script checks `CONFIG_KPM=y`, downloads pinned `kptools-linux` and
 the complete `kpimg`, patches `Image`, verifies `patched=true` and
 `version=0xe00`, and regenerates `Image.lz4` in legacy format. Inspect the
-Action log for `CONFIG_KPM=y`, `kpimg: ...,0x47df0`, and `kpimg version: e00`.
+Action log for `CONFIG_KPM=y`, `kpimg: ...,0x47df0`, `kpimg version: e00`, and
+`avc_log_spoof: enabled by default`.
 An `0x10` payload or `kpimg version: 0` is invalid even if the workflow says
 it succeeded.
 

@@ -37,6 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ksu-version-code", dest="ksu_version_code", default=None)
     parser.add_argument("--zram", action="store_true")
     parser.add_argument("--no-kpm", action="store_true")
+    parser.add_argument("--no-avc-log-spoof", dest="avc_log_spoof",
+                        action="store_false", default=True)
     parser.add_argument("--bbg", action="store_true")
     parser.add_argument("--op8e", action="store_true")
     parser.add_argument("--bbr", action="store_true")
@@ -56,17 +58,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def create_build_config(args: argparse.Namespace) -> BuildConfig:
+    android_version = args.android or "android14"
+    kernel_version = args.kernel or "6.1"
     return BuildConfig(
-        android_version=args.android or "android14",
-        kernel_version=args.kernel or "6.1",
+        android_version=android_version,
+        kernel_version=kernel_version,
         sub_level=args.sub_level or "124",
         os_patch_level=args.os_patch or "2025-02",
         kernelsu_version=args.ksu_version,
         kernelsu_commit=args.ksu_commit,
-        susfs_commit=args.susfs_commit,
+        susfs_commit=args.susfs_commit or SUSFS_PINS.get(f"{android_version}-{kernel_version}"),
         ksu_version_code=args.ksu_version_code,
         use_zram=args.zram,
         use_kpm=not args.no_kpm,
+        use_avc_log_spoof=args.avc_log_spoof,
         use_bbg=args.bbg,
         support_op8e=args.op8e,
         set_default_bbr=args.bbr,
@@ -134,6 +139,7 @@ def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str) -> l
                 ksu_version_code=args.ksu_version_code,
                 use_zram=args.zram,
                 use_kpm=not args.no_kpm,
+                use_avc_log_spoof=args.avc_log_spoof,
                 use_bbg=args.bbg,
                 support_op8e=args.op8e,
                 set_default_bbr=args.bbr,

@@ -19,6 +19,10 @@ Pixel 6 Pro (`raven`) 的 Android 13 / 5.10.198 / SukiSU 41140 / KPM
 已验证配置、产物验收和故障记录见
 [专用构建指南](docs/raven-android13-5.10.198-kpm.md)。
 
+当前适配目标是 SukiSU-Ultra v4.3.0-r2 管理器
+`SukiSU_v4.3.0-r2_41150-release.apk`（版本号 41150）。构建默认启用 KPM
+和 AVC log spoofing；41140 的 raven 运行记录仍作为历史验证保留。
+
 #### 方式一：构建单个版本
 1. 进入 **Actions** 页面
 2. 选择 **Kernel Build**
@@ -30,11 +34,11 @@ Pixel 6 Pro (`raven`) 的 Android 13 / 5.10.198 / SukiSU 41140 / KPM
 1. 选择 **Build Kernels**
 2. 点击 **Run workflow**
 3. 设置全局选项（KSU 版本、ZRAM、KPM 等）
-4. 默认固定 SukiSU `1cfa57340590971cba7521ed536da8ebbedc5f0a`、管理器版本号 `41140`；
+4. 默认固定 SukiSU `1cfa57340590971cba7521ed536da8ebbedc5f0a`、管理器版本号 `41150`；
    SUSFS 留空，由 `config/susfs-pins.json` 为每个内核系列选择固定提交。
    单个 SUSFS 提交通常只包含一个系列的补丁，不要跨系列共用。
 5. 一次构建以下 **20 个组合**，最多并行 20 个；失败不会取消其余版本。
-   默认 KPM 开启，但 6.6 因现有实现不支持而自动关闭。
+   默认 KPM 和 AVC log spoofing 开启；6.6 因现有 KPM 实现不支持而自动关闭 KPM。
 6. 在运行页面的 **Artifacts** 下载各版本 `kernel-*` 和 `build-summary`。
    包含 AnyKernel3、通用 boot 镜像、独立 SHA256 校验和与构建参数，保留 14 天。
    未配置 `BOOT_SIGN_KEY` 时通用 boot 镜像不签名。
@@ -49,7 +53,7 @@ gh workflow run build-kernels.yml -R Asu1tty/GKI_KernelSU_SUSFS \
   --ref codex/full-gki-matrix \
   -f 'kernelsu_version=Stable(标准)' \
   -f kernelsu_commit=1cfa57340590971cba7521ed536da8ebbedc5f0a \
-  -f ksu_version_code=41140 -f use_kpm=true \
+  -f ksu_version_code=41150 -f use_kpm=true -f use_avc_log_spoof=true \
   -f use_zram=false -f BBG=false -f make_release=false -f send_telegram=false
 ```
 
@@ -109,11 +113,12 @@ python build.py --list-matrix
 | `--os-patch` | OS Patch Level | 2025-02 |
 | `--revision` | Android 12 Revision | - |
 | `--ksu-version` | SukiSU-Ultra 版本 (Stable/Dev) | Stable(标准) |
-| `--ksu-commit` | 指定 SukiSU-Ultra commit hash | latest |
-| `--susfs-commit` | 指定 SUSFS commit (hash 或 HEAD~N) | latest |
-| `--ksu-version-code` | 钉住内核侧 SukiSU 版本号 (与发布的管理器 APK 对齐) | 40900 |
+| `--ksu-commit` | 指定 SukiSU-Ultra builtin commit hash | latest |
+| `--susfs-commit` | 指定 SUSFS commit (hash 或 HEAD~N) | 按内核系列固定 v2.2.0 提交 |
+| `--ksu-version-code` | 钉住内核侧 SukiSU 版本号 (与发布的管理器 APK 对齐) | 41150 |
 | `--zram` | 启用 ZRAM (LZ4KD) | False |
 | `--no-kpm` | 禁用 KPM | False |
+| `--no-avc-log-spoof` | 禁用 AVC log spoofing | False |
 | `--bbg` | 启用 Baseband-guard | False |
 | `--op8e` | 启用 OnePlus 8E 支持 | False |
 | `--bbr` | 设置 BBR 为默认拥塞算法 | False |
@@ -127,9 +132,10 @@ python build.py --list-matrix
 | `--workspace`, `-w` | 工作目录 | /tmp/gki-build |
 
 > **注意**：SukiSU-Ultra 已把 SUSFS 集成从 `main` 分支移到 `builtin` 分支。
-> `--ksu-commit` / workflow 里的「指定 KernelSU commit hash」请留空（自动使用 `builtin` 分支），
-> 或填写 `builtin` 分支上的提交。填 `main` 分支上的 tag/commit（例如 v4.2.0 的
-> `85eb4a95`）会因缺少 `KSU_SUSFS` Kconfig 而构建失败（脚本会提前报错提示）。
+> `--ksu-commit` / workflow 里的「指定 KernelSU commit hash」应填写 `builtin` 分支上的
+> 提交；当前默认值为 `1cfa57340590971cba7521ed536da8ebbedc5f0a`。填 `main`
+> 分支上的 tag/commit（例如 v4.2.0 的 `85eb4a95`）会因缺少 `KSU_SUSFS`
+> Kconfig 而构建失败（脚本会提前报错提示）。
 >
 > SUSFS 侧同样需要固定版本：`builtin` 分支只匹配 SUSFS **v2.2.0**（commit
 > `3042e23226e178dc18363a442955a68fd44ede9c`）。更新的 SUSFS（v2.3.0 起）会引用
@@ -141,10 +147,10 @@ python build.py --list-matrix
 > **内核侧版本号必须和管理器 APK 对齐**：KernelSU 的 `KSU_VERSION` 由
 > `KernelSU/kernel/Makefile` 实时抓取上游 main 分支的提交数算出
 > (`40000 + 提交数 - 2815`)，与所编译的 commit 无关，所以它会随时间漂移。
-> 例如 SukiSU v4.2.0 的 APK 是 `SukiSU_v4.2.0_40900-release.apk`，配套内核必须同样
-> 报告 40900，否则管理器会提示版本不一致（今天直接编出来是 40939）。
-> 本仓库用 `--ksu-version-code 40900`（workflow 里的「SukiSU 版本号」）把
-> `LOCAL_COUNT` 写死，从而固定输出 40900。
+> 例如 SukiSU v4.3.0-r2 的 APK 是 `SukiSU_v4.3.0-r2_41150-release.apk`，配套内核必须
+> 同样报告 41150，否则管理器会提示版本不一致。
+> 本仓库用 `--ksu-version-code 41150`（workflow 里的「SukiSU 版本号」）把
+> `LOCAL_COUNT` 写死，从而固定输出 41150。
 
 ---
 
@@ -167,6 +173,7 @@ python build.py --list-matrix
 | [BBR](https://blog.thinkin.top/archives/ke-pu-bbrdao-di-shi-shi-me) | TCP 拥塞控制算法 |
 | [LZ4KD](https://github.com/ShirkNeko/SukiSU_patch/tree/main/other) | 来自华为源码的 ZRAM 算法 |
 | [KPM](https://github.com/bmax121/KernelPatch) | 内核模块支持 |
+| [AVC log spoofing](https://github.com/SukiSU-Ultra/SukiSU-Ultra) | SUSFS 原生 AVC denial 日志上下文伪装，41150 管理器开关对应 feature id 10003 |
 | [Baseband-guard](https://github.com/vc-teahouse/Baseband-guard) | 基带安全防护 |
 
 <details>
@@ -181,7 +188,10 @@ LZ4K、LZ4HC、deflate、842、lz4k_oplus
 
 ## KSU 管理器
 
-在编译完成后，会生成最新的管理器 APK。
+使用 SukiSU-Ultra v4.3.0-r2 管理器：
+[SukiSU_v4.3.0-r2_41150-release.apk](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/download/v4.3.0-r2/SukiSU_v4.3.0-r2_41150-release.apk)。
+内核侧版本号固定为 41150；AVC log spoofing 在编译时默认开启，并可由 41150
+管理器的开关运行时切换。
 
 ---
 

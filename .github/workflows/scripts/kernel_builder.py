@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import logging
 import re
@@ -13,6 +14,10 @@ from config import (BuildConfig, KSU_REPO_CONFIG, SUSFS_REPO_CONFIG, SUKISU_PATC
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+AVC_LOG_SPOOF_PATCH_DIR = (
+    Path(__file__).resolve().parent.parent / "patches" / "avc_log_spoofing"
+)
 
 
 @dataclass
@@ -311,6 +316,106 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
         with open(makefile, "w") as f:
             f.write(content)
         logger.info(f"内核侧 SukiSU 版本号已固定为 {target} (LOCAL_COUNT={local_count})")
+
+    def enable_avc_log_spoofing(self):
+        if not self.config.use_avc_log_spoof:
+            logger.info("=== AVC log spoofing 已按配置关闭 ===")
+            return
+
+        logger.info("=== 移植 41150 管理器的 AVC log spoofing 功能 ===")
+        kernel_dir = self.work_dir / "KernelSU/kernel"
+        feature_dir = kernel_dir / "feature"
+        if not feature_dir.is_dir():
+            raise RuntimeError(f"KernelSU builtin 源码缺少 feature 目录: {feature_dir}")
+
+        for name in ("avc_log_spoof.c", "avc_log_spoof.h"):
+            source = AVC_LOG_SPOOF_PATCH_DIR / name
+            if not source.is_file():
+                raise RuntimeError(f"缺少 AVC log spoofing 补丁文件: {source}")
+            shutil.copy2(source, feature_dir / name)
+
+        uapi_feature = kernel_dir / "include/uapi/feature.h"
+        content = uapi_feature.read_text()
+        if "KSU_FEATURE_AVC_SPOOF" not in content:
+            anchor = "    KSU_FEATURE_MAX\n"
+            if anchor not in content:
+                raise RuntimeError(f"无法在 {uapi_feature} 中定位 KSU_FEATURE_MAX")
+            content = content.replace(
+                anchor,
+                "    /* SukiSU-Ultra v4.3.0-r2 manager ABI. */\n"
+                "    KSU_FEATURE_AVC_SPOOF = 10003,\n\n"
+                "    KSU_FEATURE_MAX\n",
+                1,
+            )
+            uapi_feature.write_text(content)
+
+        feature_c = kernel_dir / "policy/feature.c"
+        content = feature_c.read_text()
+        if '[KSU_FEATURE_AVC_SPOOF] = "avc_spoof"' not in content:
+            anchor = '    [KSU_FEATURE_MOUNT_HIDE] = "mount_hide",\n'
+            if anchor not in content:
+                raise RuntimeError(f"无法在 {feature_c} 中定位 mount_hide feature 名称")
+            content = content.replace(
+                anchor,
+                anchor + '    [KSU_FEATURE_AVC_SPOOF] = "avc_spoof",\n',
+                1,
+            )
+            feature_c.write_text(content)
+
+        ksu_main = kernel_dir / "ksu_main.c"
+        content = ksu_main.read_text()
+        if '#include "feature/avc_log_spoof.h"' not in content:
+            anchor = '#include "feature/mount_hide.h"\n'
+            if anchor not in content:
+                raise RuntimeError(f"无法在 {ksu_main} 中定位 feature 头文件区")
+            content = content.replace(
+                anchor,
+                anchor + '#include "feature/avc_log_spoof.h"\n',
+                1,
+            )
+        if '#include "feature/avc_log_spoof.c"' not in content:
+            anchor = '#include "feature/mount_hide.c"\n'
+            if anchor not in content:
+                raise RuntimeError(f"无法在 {ksu_main} 中定位 feature 实现区")
+            content = content.replace(
+                anchor,
+                anchor + '#include "feature/avc_log_spoof.c"\n',
+                1,
+            )
+        if "ksu_avc_log_spoof_init();" not in content:
+            anchor = "    ksu_mount_hide_init();\n"
+            if anchor not in content:
+                anchor = "\tksu_mount_hide_init();\n"
+            if anchor not in content:
+                raise RuntimeError(f"无法在 {ksu_main} 中定位 mount_hide 初始化")
+            content = content.replace(
+                anchor,
+                anchor + "    ksu_avc_log_spoof_init();\n",
+                1,
+            )
+        ksu_main.write_text(content)
+
+        logger.info("KernelSU builtin 已接入 AVC log spoofing (feature id 10003)")
+
+    def verify_avc_log_spoofing(self):
+        if not self.config.use_avc_log_spoof:
+            return
+
+        logger.info("=== 校验 AVC log spoofing 集成 ===")
+        kernel_dir = self.work_dir / "KernelSU/kernel"
+        checks = {
+            kernel_dir / "include/uapi/feature.h": "KSU_FEATURE_AVC_SPOOF = 10003",
+            kernel_dir / "policy/feature.c": '[KSU_FEATURE_AVC_SPOOF] = "avc_spoof"',
+            kernel_dir / "ksu_main.c": "ksu_avc_log_spoof_init();",
+            self.work_dir / "common/fs/susfs.c":
+                "DEFINE_STATIC_KEY_FALSE(susfs_is_avc_log_spoofing_enabled);",
+        }
+        for path, marker in checks.items():
+            if not path.is_file():
+                raise RuntimeError(f"AVC log spoofing 校验失败，缺少文件: {path}")
+            if marker not in path.read_text():
+                raise RuntimeError(f"AVC log spoofing 校验失败，{path} 缺少: {marker}")
+        logger.info("AVC log spoofing 源码与 SUSFS 后端均已就绪")
 
     def add_bbg(self):
         if not self.config.use_bbg:
@@ -840,9 +945,11 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
             self.init_and_sync_kernel()
             self.add_kernel_supatch()
             self.add_kernelsu()
+            self.enable_avc_log_spoofing()
             self.verify_susfs_integration()
             self.add_bbg()
             self.apply_susfs_patches()
+            self.verify_avc_log_spoofing()
             self.apply_sukisu_patches()
             self.apply_zram_patches()
             self.apply_task_mmu_fixes()

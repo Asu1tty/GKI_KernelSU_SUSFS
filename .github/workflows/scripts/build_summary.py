@@ -36,6 +36,7 @@ def summarize(results_dir: Path, output: Path, matrix: list, inputs: dict):
              f"SukiSU commit: `{inputs.get('kernelsu_commit') or 'builtin HEAD'}`",
              f"Manager version code: `{inputs.get('ksu_version_code') or 'automatic'}`", "",
              "KPM is disabled for 6.6; other versions follow the use_kpm input.",
+             "AVC log spoofing follows the use_avc_log_spoof input and is enabled by default.",
              "Build success does not establish device boot compatibility.", "",
              "| Configuration | OS patch | SUSFS commit | Result |",
              "| --- | --- | --- | --- |"]

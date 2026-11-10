@@ -111,6 +111,7 @@ class BuildConfig:
     ksu_version_code: Optional[str] = None
     use_zram: bool = False
     use_kpm: bool = True
+    use_avc_log_spoof: bool = True
     use_bbg: bool = False
     support_op8e: bool = False
     set_default_bbr: bool = False
@@ -192,6 +193,7 @@ class BuildConfig:
             "ksu_version_code": self.ksu_version_code,
             "use_zram": self.use_zram,
             "use_kpm": self.use_kpm,
+            "use_avc_log_spoof": self.use_avc_log_spoof,
             "use_bbg": self.use_bbg,
             "support_op8e": self.support_op8e,
             "set_default_bbr": self.set_default_bbr,

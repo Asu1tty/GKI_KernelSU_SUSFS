@@ -54,17 +54,17 @@ on:
         description: '指定 KernelSU commit hash (可选)'
         required: false
         type: string
-        default: ''
+        default: '1cfa57340590971cba7521ed536da8ebbedc5f0a'
       susfs_commit:
-        description: '指定 SUSFS commit hash (默认 SUSFS v2.2.0，与 builtin 分支兼容)'
+        description: '指定 SUSFS commit hash（留空时按内核系列使用固定 v2.2.0 提交）'
         required: false
         type: string
-        default: '3042e23226e178dc18363a442955a68fd44ede9c'
+        default: ''
       ksu_version_code:
-        description: '钉住内核侧 SukiSU 版本号，需与所用管理器 APK 一致 (v4.2.0 APK = 40900；留空=按上游 main 提交数自动计算，会漂移)'
+        description: '钉住内核侧 SukiSU 版本号，需与管理器 APK 一致 (v4.3.0-r2 APK = 41150)'
         required: false
         type: string
-        default: '40900'
+        default: '41150'
       custom_version:
         description: '自定义版本名称 (可选)'
         required: false
@@ -77,6 +77,11 @@ on:
         default: false
       use_kpm:
         description: '启用 KPM'
+        required: true
+        type: boolean
+        default: true
+      avc_log_spoof:
+        description: '启用 AVC log spoofing'
         required: true
         type: boolean
         default: true
@@ -168,6 +173,7 @@ jobs:
 
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
+          [ "${{ github.event.inputs.avc_log_spoof }}" = "false" ] && ARGS="$ARGS --no-avc-log-spoof"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
           [ "${{ github.event.inputs.supp_op }}" = "true" ] && ARGS="$ARGS --op8e"
           [ "${{ github.event.inputs.set_defbbr }}" = "true" ] && ARGS="$ARGS --bbr"

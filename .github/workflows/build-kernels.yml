@@ -15,7 +15,7 @@ on:
           - Dev(开发)
         default: Stable(标准)
       kernelsu_commit:
-        description: 'SukiSU commit（默认沿用已验证的 41140 配置）'
+        description: 'SukiSU commit（41150 使用已验证的 builtin 内核提交）'
         required: false
         type: string
         default: '1cfa57340590971cba7521ed536da8ebbedc5f0a'
@@ -25,10 +25,10 @@ on:
         type: string
         default: ''
       ksu_version_code:
-        description: 'SukiSU 管理器版本号（默认 41140）'
+        description: 'SukiSU 管理器版本号（v4.3.0-r2 APK = 41150）'
         required: false
         type: string
-        default: '41140'
+        default: '41150'
       custom_version:
         description: '自定义版本名称 (可选)'
         required: false
@@ -41,6 +41,11 @@ on:
         default: false
       use_kpm:
         description: '启用 KPM（6.6 暂不支持，自动关闭）'
+        required: true
+        type: boolean
+        default: true
+      use_avc_log_spoof:
+        description: '启用 AVC log spoofing（默认开启，需 SUSFS 后端）'
         required: true
         type: boolean
         default: true
@@ -152,6 +157,7 @@ jobs:
           CUSTOM_VERSION: ${{ inputs.custom_version }}
           USE_ZRAM: ${{ inputs.use_zram }}
           USE_KPM: ${{ inputs.use_kpm }}
+          USE_AVC_LOG_SPOOF: ${{ inputs.use_avc_log_spoof }}
           USE_BBG: ${{ inputs.BBG }}
         run: |
           args=(--android "$ANDROID" --kernel "$KERNEL" --sub-level "$SUB_LEVEL"
@@ -165,6 +171,7 @@ jobs:
           if [ "$USE_ZRAM" = true ]; then args+=(--zram); fi
           if [ "$USE_BBG" = true ]; then args+=(--bbg); fi
           if [ "$USE_KPM" = false ] || [ "$KERNEL" = 6.6 ]; then args+=(--no-kpm); fi
+          if [ "$USE_AVC_LOG_SPOOF" = false ]; then args+=(--no-avc-log-spoof); fi
           python3 .github/workflows/scripts/build.py "${args[@]}"
 
       - name: Prepare artifacts

@@ -24,6 +24,56 @@ with patch('urllib.request.urlopen', side_effect=OSError('offline test')):
 
 
 class FullMatrixTests(unittest.TestCase):
+    def test_avc_log_spoof_feature_patch_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = BuildConfig('android13', '5.10', '198', '2024-01')
+            builder = KernelBuilder(config, tmp)
+            kernel_dir = builder.work_dir / 'KernelSU/kernel'
+            (kernel_dir / 'feature').mkdir(parents=True)
+            (kernel_dir / 'policy').mkdir()
+            (kernel_dir / 'include/uapi').mkdir(parents=True)
+            (builder.work_dir / 'common/fs').mkdir(parents=True)
+            (kernel_dir / 'include/uapi/feature.h').write_text(
+                'enum ksu_feature_id {\n'
+                '    KSU_FEATURE_MOUNT_HIDE = 16,\n\n'
+                '    KSU_FEATURE_MAX\n'
+                '};\n')
+            (kernel_dir / 'policy/feature.c').write_text(
+                'static const char *const feature_names[] = {\n'
+                '    [KSU_FEATURE_MOUNT_HIDE] = "mount_hide",\n'
+                '};\n')
+            (kernel_dir / 'ksu_main.c').write_text(
+                '#include "feature/mount_hide.h"\n'
+                '#include "feature/mount_hide.c"\n'
+                'static void init(void) {\n'
+                '    ksu_mount_hide_init();\n'
+                '}\n')
+            (builder.work_dir / 'common/fs/susfs.c').write_text(
+                'DEFINE_STATIC_KEY_FALSE(susfs_is_avc_log_spoofing_enabled);\n')
+
+            builder.enable_avc_log_spoofing()
+            builder.enable_avc_log_spoofing()
+            builder.verify_avc_log_spoofing()
+
+            feature_h = (kernel_dir / 'include/uapi/feature.h').read_text()
+            self.assertEqual(1, feature_h.count('KSU_FEATURE_AVC_SPOOF = 10003'))
+            feature_c = (kernel_dir / 'policy/feature.c').read_text()
+            self.assertEqual(1, feature_c.count('[KSU_FEATURE_AVC_SPOOF] = "avc_spoof"'))
+            ksu_main = (kernel_dir / 'ksu_main.c').read_text()
+            self.assertEqual(1, ksu_main.count('ksu_avc_log_spoof_init();'))
+            self.assertTrue((kernel_dir / 'feature/avc_log_spoof.c').is_file())
+            self.assertTrue((kernel_dir / 'feature/avc_log_spoof.h').is_file())
+
+    def test_avc_log_spoof_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = BuildConfig('android13', '5.10', '198', '2024-01',
+                                 use_avc_log_spoof=False)
+            builder = KernelBuilder(config, tmp)
+            self.assertFalse((builder.work_dir / 'KernelSU').exists())
+            builder.enable_avc_log_spoofing()
+            builder.verify_avc_log_spoofing()
+            self.assertFalse((builder.work_dir / 'KernelSU').exists())
+
     def test_real_packaging_outputs_can_be_collected(self):
         previous_cwd = Path.cwd()
         try:
