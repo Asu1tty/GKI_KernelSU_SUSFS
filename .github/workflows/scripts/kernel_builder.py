@@ -351,6 +351,9 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
 
         feature_c = kernel_dir / "policy/feature.c"
         content = feature_c.read_text()
+        # builtin includes feature.c and extension.c in one translation unit.
+        # Their unprefixed bitmaps collide once KSU_FEATURE_MAX grows past 64.
+        content = re.sub(r'\b(forced_mask|forced_pending)\b', r'feature_\1', content)
         if '[KSU_FEATURE_AVC_SPOOF] = "avc_spoof"' not in content:
             anchor = '    [KSU_FEATURE_MOUNT_HIDE] = "mount_hide",\n'
             if anchor not in content:
@@ -360,7 +363,7 @@ CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
                 anchor + '    [KSU_FEATURE_AVC_SPOOF] = "avc_spoof",\n',
                 1,
             )
-            feature_c.write_text(content)
+        feature_c.write_text(content)
 
         ksu_main = kernel_dir / "ksu_main.c"
         content = ksu_main.read_text()

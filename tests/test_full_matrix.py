@@ -41,7 +41,13 @@ class FullMatrixTests(unittest.TestCase):
             (kernel_dir / 'policy/feature.c').write_text(
                 'static const char *const feature_names[] = {\n'
                 '    [KSU_FEATURE_MOUNT_HIDE] = "mount_hide",\n'
-                '};\n')
+                '};\n'
+                'static DECLARE_BITMAP(forced_mask, KSU_FEATURE_MAX);\n'
+                'static DECLARE_BITMAP(forced_pending, KSU_FEATURE_MAX);\n'
+                'static void force_feature(void) {\n'
+                '    forced_mask[0] = 1;\n'
+                '    forced_pending[0] = 1;\n'
+                '}\n')
             (kernel_dir / 'ksu_main.c').write_text(
                 '#include "feature/mount_hide.h"\n'
                 '#include "feature/mount_hide.c"\n'
@@ -63,6 +69,25 @@ class FullMatrixTests(unittest.TestCase):
             self.assertEqual(1, ksu_main.count('ksu_avc_log_spoof_init();'))
             self.assertTrue((kernel_dir / 'feature/avc_log_spoof.c').is_file())
             self.assertTrue((kernel_dir / 'feature/avc_log_spoof.h').is_file())
+
+            # Match builtin's unity build: extension and feature bitmaps share
+            # a translation unit but must compile and retain independent state.
+            unity_source = (
+                '#define DECLARE_BITMAP(name, bits) unsigned long name[((bits) + 63) / 64]\n'
+                + feature_h
+                + 'static DECLARE_BITMAP(forced_mask, 7);\n'
+                + 'static DECLARE_BITMAP(forced_pending, 7);\n'
+                + feature_c
+                + 'int main(void) {\n'
+                + '    force_feature();\n'
+                + '    return forced_mask[0] || forced_pending[0];\n'
+                + '}\n'
+            )
+            executable = Path(tmp) / 'unity-bitmap-check'
+            subprocess.run(['cc', '-x', 'c', '-std=c11', '-Werror',
+                            '-o', str(executable), '-'], input=unity_source,
+                           text=True, capture_output=True, check=True)
+            subprocess.run([str(executable)], check=True)
 
     def test_avc_log_spoof_can_be_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
