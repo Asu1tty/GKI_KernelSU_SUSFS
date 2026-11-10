@@ -139,9 +139,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
+        timeout-minutes: 15
         run: |
-          sudo apt update && sudo apt upgrade -y
-          sudo apt install -y ccache python3 git curl wget zip unzip lz4
+          sudo apt-get update
+          sudo apt-get install -y ccache python3 git curl wget zip unzip lz4
           pip install PyYAML
 
       - name: Configure ccache
